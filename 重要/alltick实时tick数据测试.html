@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AllTick 实时逐笔Tick调试页</title>
+  <style>
+    :root{--bg:#0f172a;--card:#111827;--muted:#94a3b8;--ok:#22c55e;--warn:#f59e0b;--err:#ef4444;--txt:#e5e7eb;--acc:#38bdf8;--border:#1f2937}
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--txt);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
+    h1{font-size:18px;margin:0 0 8px 0}
+    .wrap{max-width:1100px;margin:24px auto;padding:0 16px}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:16px;box-shadow:0 8px 20px rgba(0,0,0,.25)}
+    .row{display:flex;gap:12px;flex-wrap:wrap}
+    label{font-size:12px;color:var(--muted)}
+    input,select,textarea,button{background:#0b1220;color:var(--txt);border:1px solid var(--border);border-radius:10px;padding:10px 12px;font-size:14px}
+    input:focus,select:focus,textarea:focus,button:focus{outline:1px solid var(--acc);box-shadow:0 0 0 3px rgba(56,189,248,.25)}
+    textarea{width:100%;min-height:90px}
+    button{cursor:pointer}
+    .btn{padding:10px 14px;border-radius:12px;border:1px solid var(--border)}
+    .btn.primary{background:linear-gradient(135deg,#0891b2,#2563eb);border:0}
+    .btn.ok{background:#064e3b;border:1px solid #065f46}
+    .btn.warn{background:#7c2d12;border:1px solid #9a3412}
+    .btn.ghost{background:transparent}
+    .status{font-size:12px}
+    .badge{display:inline-block;padding:4px 8px;border-radius:999px;font-size:11px;border:1px solid var(--border);background:#0b1220}
+    .badge.ok{border-color:#14532d;color:#86efac}
+    .badge.err{border-color:#7f1d1d;color:#fecaca}
+    .badge.warn{border-color:#78350f;color:#fde68a}
+    .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:12px}
+    .col-4{grid-column:span 4}
+    .col-6{grid-column:span 6}
+    .col-8{grid-column:span 8}
+    .col-12{grid-column:span 12}
+    .log{background:#040b17;border:1px solid var(--border);border-radius:12px;padding:10px;overflow:auto;max-height:320px;font-family:ui-monospace,Consolas,monospace;font-size:12px}
+    table{width:100%;border-collapse:separate;border-spacing:0 6px}
+    th,td{font-size:12px;text-align:left;padding:8px 10px}
+    tbody tr{background:#0b1220;border:1px solid var(--border)}
+    tbody tr td:first-child{border-radius:10px 0 0 10px}
+    tbody tr td:last-child{border-radius:0 10px 10px 0}
+    .help a{color:#7dd3fc}
+    .muted{color:var(--muted)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>最新成交价(实时逐笔Tick) 批量订阅 · WebSocket 调试</h1>
+      <div class="help muted">支持选择股票端点或外汇/加密等端点，手动输入 <code>token</code> 与产品 <code>code</code> 列表，发送协议 <code>22004</code> 完成订阅，并展示应答 <code>22005</code> 与推送 <code>22998</code>。订阅为覆盖式，如需“追加订阅”，请重新发送完整列表。</div>
+    </div>
+
+    <div class="card">
+      <div class="grid">
+        <div class="col-12 row">
+          <div style="flex:1 1 280px">
+            <label>选择接口种类</label>
+            <div>
+              <label><input type="radio" name="apiKind" value="stock" checked> 美/港/沪深/大盘 (quote-stock-b-ws-api)</label>
+              <span style="margin-left:14px"></span>
+              <label><input type="radio" name="apiKind" value="multi"> 外汇/贵金属/加密/能源/CFD/商品 (quote-b-ws-api)</label>
+            </div>
+          </div>
+          <div style="flex:1 1 220px">
+            <label>WS 主机</label>
+            <input id="host" value="wss://quote.alltick.io" />
+          </div>
+          <div style="flex:1 1 140px">
+            <label>Token</label>
+            <input id="token" placeholder="输入您的 token" />
+          </div>
+          <div style="flex:1 1 140px">
+            <label>Seq ID (会回传)</label>
+            <input id="seq" type="number" value="1" />
+          </div>
+          <div style="flex:0 0 auto;align-self:end">
+            <label>&nbsp;</label>
+            <div>
+              <label class="muted"><input id="autoIncSeq" type="checkbox" checked> 发送后自增</label>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-12">
+          <label>订阅产品代码（用逗号 / 空格 / 换行分隔，例如：<code>BTCUSDT, ETHUSDT</code> 或 <code>700.HK</code>）</label>
+          <textarea id="codes" placeholder="示例：BTCUSDT, ETHUSDT\n或：AAPL, MSFT\n或：700.HK"></textarea>
+        </div>
+
+        <div class="col-12 row" style="align-items:center;gap:8px">
+          <button class="btn primary" id="btnConnect">连接</button>
+          <button class="btn" id="btnSubscribe">发送订阅(22004)</button>
+          <button class="btn" id="btnDisconnect">断开</button>
+          <button class="btn ghost" id="btnClear">清空日志</button>
+          <button class="btn ghost" id="btnDownload">下载日志</button>
+          <span class="status">连接状态：<span id="connState" class="badge">未连接</span>　URL：<span id="fullUrl" class="muted"></span></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h1>心跳 & 自动重连</h1>
+      <div class="row" style="align-items:flex-end">
+        <div>
+          <label>心跳间隔（秒）</label>
+          <input id="hbInterval" type="number" value="10" min="3" style="width:120px" />
+        </div>
+        <div style="flex:1 1 360px">
+          <label>心跳消息（JSON，服务器未规定格式时可尝试 <code>"ping"</code> 或 <code>{}</code>）</label>
+          <input id="hbPayload" value='"ping"' />
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <div>
+            <label class="muted"><input type="checkbox" id="autoHB" checked> 自动心跳</label>
+            <span style="margin-left:12px"></span>
+            <label class="muted"><input type="checkbox" id="autoReconnect" checked> 断开自动重连</label>
+          </div>
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <div>
+            <button class="btn" id="btnSendHB">立即发送一次心跳</button>
+          </div>
+        </div>
+      </div>
+      <div class="muted" style="margin-top:8px">提示：浏览器原生不支持自定义 WebSocket Ping 帧，因此这里通过发送文本/JSON 作为应用层心跳。请根据贵方服务端要求调整心跳内容。</div>
+    </div>
+
+    <div class="card">
+      <h1>推送监视</h1>
+      <div class="row" style="align-items:center">
+        <div class="badge ok" id="metrics">消息 0 · Tick 0 · 错误 0</div>
+        <div class="muted" id="lastHB" style="margin-left:12px">上次心跳：-</div>
+      </div>
+      <div style="margin-top:10px">
+        <div class="muted">最近的逐笔推送 (22998)：</div>
+        <div style="overflow:auto">
+          <table id="tickTable">
+            <thead>
+              <tr>
+                <th>time (本地)</th>
+                <th>code</th>
+                <th>price</th>
+                <th>volume</th>
+                <th>turnover</th>
+                <th>direction</th>
+                <th>tick_time(ms)</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h1>原始日志</h1>
+      <pre class="log" id="log"></pre>
+    </div>
+
+    <div class="card">
+      <div class="help">
+        参考：
+        <ul>
+          <li>股票端点：<code>wss://quote.alltick.io/quote-stock-b-ws-api?token=&lt;token&gt;</code></li>
+          <li>外汇/加密等端点：<code>wss://quote.alltick.io/quote-b-ws-api?token=&lt;token&gt;</code></li>
+          <li>订阅协议：<code>22004</code>，应答：<code>22005</code>，推送：<code>22998</code></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id)=>document.getElementById(id);
+    const logEl = $("log");
+    const tickBody = document.querySelector('#tickTable tbody');
+    const connState = $("connState");
+    const metricsEl = $("metrics");
+    const lastHBEl = $("lastHB");
+    const fullUrlEl = $("fullUrl");
+
+    let ws = null;
+    let hbTimer = null;
+    let reconnectTimer = null;
+
+    const metrics = { msgs:0, ticks:0, errs:0 };
+    let lastSubscribePayload = null;
+
+    function uuid(){
+      if (crypto && crypto.randomUUID) return crypto.randomUUID();
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = Math.random()*16|0, v = c === 'x' ? r : (r&0x3|0x8);return v.toString(16)
+      });
+    }
+
+    function now(){ return new Date().toLocaleString(); }
+
+    function setState(text, kind){
+      connState.textContent = text;
+      connState.className = 'badge ' + (kind||'');
+    }
+
+    function appendLog(line){
+      const ts = new Date().toISOString();
+      logEl.textContent += `[$${'{'}ts}] ${'$'}{line}\n`;
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function updateMetrics(){
+      metricsEl.textContent = `消息 ${metrics.msgs} · Tick ${metrics.ticks} · 错误 ${metrics.errs}`;
+    }
+
+    function buildUrl(){
+      const host = $("host").value.trim().replace(/\/$/,'');
+      const kind = [...document.querySelectorAll('input[name="apiKind"]')].find(x=>x.checked).value;
+      const path = kind === 'stock' ? '/quote-stock-b-ws-api' : '/quote-b-ws-api';
+      const token = $("token").value.trim();
+      const url = `${host}${path}?token=${encodeURIComponent(token)}`;
+      fullUrlEl.textContent = url;
+      return url;
+    }
+
+    function parseCodes(){
+      const raw = $("codes").value;
+      const list = raw.split(/[\s,\n]+/).map(s=>s.trim()).filter(Boolean);
+      return [...new Set(list)];
+    }
+
+    function openWS(){
+      const url = buildUrl();
+      if (!url.includes('token=') || url.endsWith('token=')){
+        alert('请先输入 token');
+        return;
+      }
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)){
+        ws.close(1000,'reconnect');
+      }
+      ws = new WebSocket(url);
+
+      setState('连接中…','warn');
+      appendLog(`→ CONNECT ${url}`);
+
+      ws.onopen = () => {
+        setState('已连接','ok');
+        appendLog('✓ OPEN');
+        startHeartbeat();
+        // 若有上一次订阅，自动重发
+        if (lastSubscribePayload){
+          sendJSON(lastSubscribePayload);
+          appendLog('↻ 已自动重发上次订阅');
+        }
+      };
+
+      ws.onmessage = (ev) => {
+        metrics.msgs++; updateMetrics();
+        const text = ev.data;
+        try{
+          const obj = JSON.parse(text);
+          handleMessage(obj);
+          appendLog('← ' + JSON.stringify(obj));
+        }catch(e){
+          appendLog('← [text] ' + text);
+        }
+      };
+
+      ws.onerror = (e) => {
+        metrics.errs++; updateMetrics();
+        setState('错误','err');
+        appendLog('✗ ERROR');
+      };
+
+      ws.onclose = (ev) => {
+        setState('已断开','');
+        appendLog(`✦ CLOSE code=${ev.code} reason=${ev.reason||''}`);
+        stopHeartbeat();
+        if ($("autoReconnect").checked){
+          if (reconnectTimer) clearTimeout(reconnectTimer);
+          reconnectTimer = setTimeout(()=>{
+            appendLog('… 正在自动重连');
+            openWS();
+          }, 1500);
+        }
+      };
+    }
+
+    function startHeartbeat(){
+      stopHeartbeat();
+      if (!$("autoHB").checked) return;
+      const sec = Math.max(3, Number($("hbInterval").value) || 10);
+      const payloadText = $("hbPayload").value.trim();
+      try{ JSON.parse(payloadText); }catch{ /* 如果不是严格 JSON，也允许作为纯文本 */ }
+      hbTimer = setInterval(()=>sendHeartbeat(), sec*1000);
+      lastHBEl.textContent = '上次心跳：已启动';
+    }
+
+    function stopHeartbeat(){ if (hbTimer){ clearInterval(hbTimer); hbTimer=null; } }
+
+    function sendHeartbeat(){
+      if (!ws || ws.readyState !== WebSocket.OPEN){ appendLog('! 心跳未发送：未连接'); return; }
+      const payloadText = $("hbPayload").value.trim();
+      let data = payloadText;
+      try{ data = JSON.parse(payloadText); }catch{ /* 当作字符串 */ }
+      ws.send(typeof data === 'string' ? data : JSON.stringify(data));
+      lastHBEl.textContent = '上次心跳：' + now();
+      appendLog('→ [HB] ' + (typeof data==='string'?data:JSON.stringify(data)) );
+    }
+
+    function sendJSON(obj){
+      if (!ws || ws.readyState !== WebSocket.OPEN){ alert('请先建立连接'); return; }
+      ws.send(JSON.stringify(obj));
+    }
+
+    function subscribe(){
+      const codes = parseCodes();
+      if (codes.length === 0){ alert('请输入至少一个 code'); return; }
+      const seq = Number($("seq").value)||0;
+      const payload = {
+        cmd_id: 22004,
+        seq_id: seq,
+        trace: `${uuid()}-${Date.now()}`,
+        data: { symbol_list: codes.map(code=>({code})) }
+      };
+      lastSubscribePayload = payload; // 便于重连后自动重发
+      sendJSON(payload);
+      appendLog('→ SUB ' + JSON.stringify(payload));
+      if ($("autoIncSeq").checked){ $("seq").value = seq + 1; }
+    }
+
+    function handleMessage(obj){
+      if (obj && obj.cmd_id === 22998 && obj.data){
+        metrics.ticks++; updateMetrics();
+        appendTick(obj.data);
+      }
+    }
+
+    function appendTick(d){
+      const tr = document.createElement('tr');
+      const local = new Date().toLocaleTimeString();
+      const dirMap = {0:'0/中性',1:'1/Buy',2:'2/Sell'};
+      tr.innerHTML = `
+        <td>${local}</td>
+        <td>${escapeHtml(d.code||'')}</td>
+        <td>${escapeHtml(d.price||'')}</td>
+        <td>${escapeHtml(d.volume||d.volumn||'')}</td>
+        <td>${escapeHtml(d.turnover||'')}</td>
+        <td>${escapeHtml(dirMap[d.trade_direction]||String(d.trade_direction||''))}</td>
+        <td>${escapeHtml(String(d.tick_time||''))}</td>
+      `;
+      tickBody.prepend(tr);
+      // 保留最近 200 行
+      while (tickBody.children.length > 200){ tickBody.removeChild(tickBody.lastChild); }
+    }
+
+    function escapeHtml(s){
+      return String(s).replace(/[&<>\"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+    }
+
+    function downloadLog(){
+      const blob = new Blob([logEl.textContent], {type:'text/plain;charset=utf-8'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `allticks-ws-log-${Date.now()}.txt`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(a.href);
+    }
+
+    // UI 事件绑定
+    $("btnConnect").addEventListener('click', openWS);
+    $("btnDisconnect").addEventListener('click', ()=>{ if(ws){ ws.close(1000,'manual'); }});
+    $("btnSubscribe").addEventListener('click', subscribe);
+    $("btnClear").addEventListener('click', ()=>{ logEl.textContent=''; tickBody.innerHTML=''; metrics.msgs=metrics.ticks=metrics.errs=0; updateMetrics(); });
+    $("btnDownload").addEventListener('click', downloadLog);
+    $("btnSendHB").addEventListener('click', sendHeartbeat);
+    document.querySelectorAll('input[name="apiKind"]').forEach(r=>r.addEventListener('change', buildUrl));
+    ["host","token"].forEach(id=>$(id).addEventListener('input', buildUrl));
+
+    // 初始 URL 展示
+    buildUrl();
+  </script>
+</body>
+</html>
